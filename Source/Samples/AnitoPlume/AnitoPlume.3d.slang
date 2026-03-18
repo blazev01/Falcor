@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-24, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -25,54 +25,39 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#pragma once
-#include "Falcor.h"
-#include "Core/SampleApp.h"
-#include "Core/Pass/RasterPass.h"
+import Scene.Raster;
+import Utils.Sampling.TinyUniformSampleGenerator;
+import Rendering.Lights.LightHelpers;
 
-using namespace Falcor;
-
-class AnitoPlume : public SampleApp
+VSOut vsMain(VSIn vIn)
 {
-public:
-    AnitoPlume(const SampleAppConfig& config);
-    ~AnitoPlume();
+    return defaultVS(vIn);
+}
 
-    void onLoad(RenderContext* pRenderContext) override;
-    void onShutdown() override;
-    void onResize(uint32_t width, uint32_t height) override;
-    void onFrameRender(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo) override;
-    void onGuiRender(Gui* pGui) override;
-    bool onKeyEvent(const KeyboardEvent& keyEvent) override;
-    bool onMouseEvent(const MouseEvent& mouseEvent) override;
-    void onHotReload(HotReloadFlags reloaded) override;
+float4 psMain(VSOut vsOut, uint triangleIndex: SV_PrimitiveID) : SV_TARGET
+{
+    let lod = ImplicitLodTextureSampler();
+    if (alphaTest(vsOut, triangleIndex, lod))
+        discard;
 
-private:
-    void loadScene(const std::filesystem::path& path, const Fbo* pTargetFbo);
-    void setPerFrameVars(const Fbo* pTargetFbo);
-    void renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo);
-    void renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo);
+    float3 viewDir = normalize(gScene.camera.getPosition() - vsOut.posW);
+    ShadingData sd = prepareShadingData(vsOut, triangleIndex, viewDir);
 
-private:
-    void renderMainMenuBar(Gui* pGui);
-    void renderSimulatorInput(Gui* pGui);
-    void renderPlayback(Gui* pGui);
-    void renderCameraSettings(Gui* pGui);
-    void renderDisplaySettings(Gui* pGui);
-    void renderPlumeDirectionTracker(Gui* pGui);
-    void renderProfiler(Gui* pGui);
+    // Create material instance.
+    let mi = gScene.materials.getMaterialInstance(sd, lod);
 
-    ref<Scene> mpScene;
-    ref<Camera> mpCamera;
+    float3 color = mi.getProperties(sd).emission;
 
-    ref<RasterPass> mpRasterPass;
+    float2 pixel = vsOut.posH.xy;
+    TinyUniformSampleGenerator sg = TinyUniformSampleGenerator(uint2(pixel), 0);
 
-    ref<Program> mpRaytraceProgram;
-    ref<RtProgramVars> mpRtVars;
-    ref<Texture> mpRtOut;
+    // Direct lighting from analytic light sources
+    for (int i = 0; i < gScene.getLightCount(); i++)
+    {
+        AnalyticLightSample ls;
+        evalLightApproximate(sd.posW, gScene.getLight(i), ls);
+        color += mi.eval(sd, ls.dir, sg) * ls.Li;
+    }
 
-    bool mRayTrace = true;
-    bool mUseDOF = false;
-
-    uint32_t mSampleIndex = 0xdeadbeef;
-};
+    return float4(color, 1.f);
+}
