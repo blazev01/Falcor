@@ -32,12 +32,26 @@
 FALCOR_EXPORT_D3D12_AGILITY_SDK
 
 static const float4 kClearColor(0.38f, 0.52f, 0.10f, 1);
-static const std::string kDefaultScene = "Taal/Taal.pyscene";
+static const std::string kDefaultScene = "AnitoPlume/Taal.pyscene";
+static const std::string kTaalMinimapPath = "AnitoPlume/TexturesUI/TaalMinimap.png";
+static const Gui::WindowFlags kDefaultWindowFlags =
+    Gui::WindowFlags::ShowTitleBar |
+    Gui::WindowFlags::AllowMove |
+    Gui::WindowFlags::NoResize |
+    Gui::WindowFlags::CloseButton;
 
-uint32_t mSampleGuiWidth = 250;
-uint32_t mSampleGuiHeight = 200;
-uint32_t mSampleGuiPositionX = 20;
-uint32_t mSampleGuiPositionY = 40;
+const Gui::DropdownList kCameraControllerTypeList = {
+    {(uint32_t)Scene::CameraControllerType::FirstPerson, "First Person"},
+    {(uint32_t)Scene::CameraControllerType::Orbiter, "Orbiter"},
+    {(uint32_t)Scene::CameraControllerType::SixDOF, "6-DOF"},
+};
+
+const Gui::DropdownList kTerrainByYearList = {
+    {(uint32_t)AnitoPlume::TerrainByYear::Year2023, "2023"},
+    {(uint32_t)AnitoPlume::TerrainByYear::Year2021, "2021"},
+    {(uint32_t)AnitoPlume::TerrainByYear::Year2019, "2019"},
+    {(uint32_t)AnitoPlume::TerrainByYear::Year2015, "2015"},
+};
 
 AnitoPlume::AnitoPlume(const SampleAppConfig& config) : SampleApp(config)
 {
@@ -56,6 +70,8 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
         FALCOR_THROW("Device does not support raytracing!");
     }
 
+    mpTaalMinimap = Texture::createFromFile(getDevice(), kTaalMinimapPath, true, false);
+
     loadScene(kDefaultScene, getTargetFbo().get());
 }
 
@@ -67,12 +83,12 @@ void AnitoPlume::onShutdown()
 void AnitoPlume::onResize(uint32_t width, uint32_t height)
 {
     float h = (float)height;
-    float w = (float)width;
+    float widget = (float)width;
 
     if (mpCamera)
     {
         mpCamera->setFocalLength(18);
-        float aspectRatio = (w / h);
+        float aspectRatio = (widget / h);
         mpCamera->setAspectRatio(aspectRatio);
     }
 
@@ -141,8 +157,10 @@ void AnitoPlume::onHotReload(HotReloadFlags reloaded)
 
 void AnitoPlume::loadScene(const std::filesystem::path& path, const Fbo* pTargetFbo)
 {
+    // TODO: Use a render graph
     mpScene = Scene::create(getDevice(), path);
     mpCamera = mpScene->getCamera();
+    mpEnvMap = mpScene->getEnvMap();
 
     // Update the controllers
     float radius = mpScene->getSceneBounds().radius();
@@ -252,48 +270,134 @@ void AnitoPlume::renderMainMenuBar(Gui* pGui)
 
 void AnitoPlume::renderSimulatorInput(Gui* pGui)
 {
-    Gui::Window w(pGui, "Simulator Input", {250, 200});
+    Gui::Window widget(pGui, "Simulator Input", {400, 600}, {10, 20}, kDefaultWindowFlags);
 
-    w.text("Hello from AnitoPlume");
-    if (w.button("Click Here"))
+    // TODO: Implement simulator input
+    if (auto windSettings = widget.group("Wind Settings", true))
     {
-        msgBox("Info", "Now why would you do that?");
+        widget.text("TODO: Implement wind settings.");
     }
+
+    if (auto eruptionParameters = widget.group("Eruption Parameters", true))
+    {
+        widget.text("TODO: Implement eruption parameters.");
+    }
+
 }
 
 void AnitoPlume::renderPlayback(Gui* pGui)
 {
-    Gui::Window w(pGui, "Playback", {250, 200});
+    Gui::Window widget(pGui, "Playback", {400, 100}, {600, 20}, kDefaultWindowFlags);
 
-    w.text("Hello from AnitoPlume");
+    // TODO: Implement playback controls
+    widget.text("TODO: Implement playback controls.");
 }
 
 void AnitoPlume::renderCameraSettings(Gui* pGui)
 {
-    Gui::Window w(pGui, "Camera Settings", {250, 200});
+    Gui::Window widget(pGui, "Camera Settings", {300, 150}, {1230, 20}, kDefaultWindowFlags);
 
-    w.text("Hello from AnitoPlume");
+    auto camera = mpScene->getCamera();
+
+    auto cameraControllerType = mpScene->getCameraControllerType();
+    if (widget.dropdown("Camera Controller", kCameraControllerTypeList, reinterpret_cast<uint32_t&>(cameraControllerType)))
+    {
+        mpScene->setCameraController(cameraControllerType);
+    }
+
+    float mCameraSpeed = mpScene->getCameraSpeed();
+    if (widget.var("Camera Speed", mCameraSpeed, 0.f, std::numeric_limits<float>::max(), 0.01f))
+    {
+        mpScene->setCameraSpeed(mCameraSpeed);
+    }
+
+    float3 pos = camera->getPosition();
+    if (widget.var("Position", pos, -FLT_MAX, FLT_MAX, 0.001f, false, "%.4f"))
+        camera->setPosition(pos);
+
+    float3 target = camera->getTarget();
+    if (widget.var("Target", target, -FLT_MAX, FLT_MAX, 0.001f, false, "%.4f"))
+        camera->setTarget(target);
+
+    if (auto cameraGroup = widget.group("More Settings"))
+    {
+        float focalLength = camera->getFocalLength();
+        if (widget.var("Focal Length", focalLength, 0.0f, FLT_MAX, 0.25f))
+            camera->setFocalLength(focalLength);
+
+        float aspectRatio = camera->getAspectRatio();
+        if (widget.var("Aspect Ratio", aspectRatio, 0.f, FLT_MAX, 0.001f))
+            camera->setAspectRatio(aspectRatio);
+
+        float focalDistance = camera->getFocalDistance();
+        if (widget.var("Focal Distance", focalDistance, 0.f, FLT_MAX, 0.05f))
+            camera->setFocalDistance(focalDistance);
+
+        float apertureRadius = camera->getApertureRadius();
+        if (widget.var("Aperture Radius", apertureRadius, 0.f, FLT_MAX, 0.001f))
+            camera->setApertureRadius(apertureRadius);
+
+        float shutterSpeed = camera->getShutterSpeed();
+        if (widget.var("Shutter Speed", shutterSpeed, 0.f, FLT_MAX, 0.001f))
+            camera->setShutterSpeed(shutterSpeed);
+
+        float ISOSpeed = camera->getISOSpeed();
+        if (widget.var("ISO Speed", ISOSpeed, 0.8f, FLT_MAX, 0.25f))
+            camera->setISOSpeed(ISOSpeed);
+        
+        float2 depth = float2(camera->getNearPlane(), camera->getFarPlane());
+        if (widget.var("Depth Range", depth, 0.f, FLT_MAX, 0.1f))
+            camera->setDepthRange(depth.x, depth.y);
+
+        float3 up = camera->getUpVector();
+        if (widget.var("Up", up, -FLT_MAX, FLT_MAX, 0.001f, false, "%.4f"))
+            camera->setUpVector(up);
+    }
+
 }
 
 void AnitoPlume::renderDisplaySettings(Gui* pGui)
 {
-    Gui::Window w(pGui, "Display Settings", {250, 200});
+    Gui::Window widget(pGui, "Display Settings", {300, 200}, {1230, 200}, kDefaultWindowFlags);
 
-    w.text("Hello from AnitoPlume");
+    // TODO: Implement functionality
+    auto terrainByYear = mTerrainByYear;
+    if (widget.dropdown("Terrain By Year", kTerrainByYearList, reinterpret_cast<uint32_t&>(terrainByYear)))
+    {
+        mTerrainByYear = terrainByYear;
+    }
+
+    if (widget.checkbox("Display landmarks", mDisplayLandmarks)) {};
+    if (widget.checkbox("Display info UI", mDisplayInfoUI)) {};
+    if (widget.checkbox("Display billboards", mDisplayBillboards)) {};
+    if (widget.checkbox("Display free spheres", mDisplayFreeSpheres)) {};
+    if (widget.checkbox("Display spheres with subspheres", mDisplaySpheresWithSubspheres)) {};
+    if (widget.checkbox("Display torus layers", mDisplayTorusLayers)) {};
 }
 
 void AnitoPlume::renderPlumeDirectionTracker(Gui* pGui)
 {
-    Gui::Window w(pGui, "Plume Direction Tracker", {250, 200});
+    Gui::Window widget(pGui, "Plume Direction Tracker", {500, 300}, {1030, 530}, kDefaultWindowFlags);
 
-    w.text("Hello from AnitoPlume");
+    // TODO: Implement the plume direction tracker
+    widget.text("TODO: Implement the plume direction tracker.");
+
+    if (mpTaalMinimap)
+    {
+        //widget.image("##Taal Minimap", mpTaalMinimap, {256, 256});
+    }
+    else
+    {
+        widget.text("Failed to load Taal minimap texture.");
+    }
 }
 
 void AnitoPlume::renderProfiler(Gui* pGui)
 {
-    Gui::Window w(pGui, "Profiler", {250, 200});
+    Gui::Window widget(pGui, "Profiler", {500, 200}, {10, 640}, kDefaultWindowFlags);
 
-    w.text("Hello from AnitoPlume");
+    // TODO: Implement  the profiler
+    widget.text("TODO: Implement the profiler.");
 }
 
 #pragma endregion

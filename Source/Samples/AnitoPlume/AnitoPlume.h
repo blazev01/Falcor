@@ -35,6 +35,12 @@ using namespace Falcor;
 class AnitoPlume : public SampleApp
 {
 public:
+    enum class TerrainByYear
+    {
+        Year2023, Year2021, Year2019, Year2015
+    };
+
+public:
     AnitoPlume(const SampleAppConfig& config);
     ~AnitoPlume();
 
@@ -62,8 +68,21 @@ private:
     void renderPlumeDirectionTracker(Gui* pGui);
     void renderProfiler(Gui* pGui);
 
+private:
+    TerrainByYear mTerrainByYear = TerrainByYear::Year2023;
+    bool mDisplayLandmarks = true;
+    bool mDisplayInfoUI = true;
+    bool mDisplayBillboards = true;
+    bool mDisplayFreeSpheres = false;
+    bool mDisplaySpheresWithSubspheres = false;
+    bool mDisplayTorusLayers = false;
+
+    ref<Texture> mpTaalMinimap;
+
+private:
     ref<Scene> mpScene;
     ref<Camera> mpCamera;
+    ref<EnvMap> mpEnvMap;
 
     ref<RasterPass> mpRasterPass;
 
