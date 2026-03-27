@@ -28,6 +28,7 @@
 #include "AnitoPlume.h"
 #include "Utils/Math/FalcorMath.h"
 #include "Utils/UI/TextRenderer.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 FALCOR_EXPORT_D3D12_AGILITY_SDK
 
@@ -70,9 +71,21 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
         FALCOR_THROW("Device does not support raytracing!");
     }
 
+    // Load all render pass plugins (PathTracer, GBuffer, etc.)
+    PluginManager::instance().loadAllPlugins();
+
+    // Load any .py render graph from Source/Mogwai/Data/
+    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracer.py");
+
+    if (mpRenderGraph == nullptr)
+    {
+        FALCOR_THROW("Failed to load render graph from file.");
+    }
+    
     mpTaalMinimap = Texture::createFromFile(getDevice(), kTaalMinimapPath, true, false);
 
     loadScene(kDefaultScene, getTargetFbo().get());
+    getDevice()->getProfiler()->setEnabled(true);
 }
 
 void AnitoPlume::onShutdown()
@@ -92,6 +105,8 @@ void AnitoPlume::onResize(uint32_t width, uint32_t height)
         mpCamera->setAspectRatio(aspectRatio);
     }
 
+    mpRenderGraph->onResize(getTargetFbo().get());
+
     mpRtOut = getDevice()->createTexture2D(
         width, height, ResourceFormat::RGBA16Float, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
     );
@@ -109,13 +124,25 @@ void AnitoPlume::onFrameRender(RenderContext* pRenderContext, const ref<Fbo>& pT
         if (is_set(updates, IScene::UpdateFlags::RecompileNeeded))
             FALCOR_THROW("This sample does not support scene changes that require shader recompilation.");
 
-        if (mRayTrace)
-            renderRT(pRenderContext, pTargetFbo);
-        else
+        switch (mRenderMode)
+        {
+        case AnitoPlume::RenderMode::Raster:
             renderRaster(pRenderContext, pTargetFbo);
+            break;
+        case AnitoPlume::RenderMode::RayTrace:
+            renderRT(pRenderContext, pTargetFbo);
+            break;
+        case AnitoPlume::RenderMode::Graph:
+            renderGraph(pRenderContext, pTargetFbo, updates);
+            break;
+        default:
+            renderRaster(pRenderContext, pTargetFbo);
+            break;
+        }
+
     }
 
-    getTextRenderer().render(pRenderContext, getFrameRate().getMsg(), pTargetFbo, {20, 20});
+    //getTextRenderer().render(pRenderContext, getFrameRate().getMsg(), pTargetFbo, {1680, 1020});
 }
 
 void AnitoPlume::onGuiRender(Gui* pGui)
@@ -128,16 +155,16 @@ void AnitoPlume::onGuiRender(Gui* pGui)
     renderPlumeDirectionTracker(pGui);
     renderProfiler(pGui);
 
-    renderGlobalUI(pGui);
+    //renderGlobalUI(pGui);
 }
 
 bool AnitoPlume::onKeyEvent(const KeyboardEvent& keyEvent)
 {
-    if (keyEvent.key == Input::Key::Space && keyEvent.type == KeyboardEvent::Type::KeyPressed)
-    {
-        mRayTrace = !mRayTrace;
-        return true;
-    }
+    //if (keyEvent.key == Input::Key::Space && keyEvent.type == KeyboardEvent::Type::KeyPressed)
+    //{
+    //    mRayTrace = !mRayTrace;
+    //    return true;
+    //}
 
     if (mpScene && mpScene->onKeyEvent(keyEvent))
         return true;
@@ -157,8 +184,11 @@ void AnitoPlume::onHotReload(HotReloadFlags reloaded)
 
 void AnitoPlume::loadScene(const std::filesystem::path& path, const Fbo* pTargetFbo)
 {
-    // TODO: Use a render graph
     mpScene = Scene::create(getDevice(), path);
+
+    mpRenderGraph->setScene(mpScene);
+    mpRenderGraph->onResize(pTargetFbo);
+
     mpCamera = mpScene->getCamera();
     mpEnvMap = mpScene->getEnvMap();
 
@@ -252,6 +282,25 @@ void AnitoPlume::renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTarget
     pRenderContext->clearUAV(mpRtOut->getUAV().get(), kClearColor);
     mpScene->raytrace(pRenderContext, mpRaytraceProgram.get(), mpRtVars, uint3(pTargetFbo->getWidth(), pTargetFbo->getHeight(), 1));
     pRenderContext->blit(mpRtOut->getSRV(), pTargetFbo->getRenderTargetView(0));
+}
+
+void AnitoPlume::renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo, IScene::UpdateFlags updates)
+{
+    FALCOR_ASSERT(mpScene);
+    FALCOR_PROFILE(pRenderContext, "renderGraph");
+
+    // Notify active graph of any scene updates.
+    mpRenderGraph->onSceneUpdates(pRenderContext, updates);
+
+    // Execute graph.
+    mpRenderGraph->getPassesDictionary()["_refresgFlags"] = RenderPassRefreshFlags::None;
+    mpRenderGraph->execute(pRenderContext);
+
+    // Blit main graph output to frame buffer.
+    ref<Texture> pOutTex = mpRenderGraph->getOutput(mpRenderGraph->getOutputName(0))->asTexture();
+    FALCOR_ASSERT(pOutTex);
+    pRenderContext->blit(pOutTex->getSRV(), pTargetFbo->getRenderTargetView(0));
+
 }
 
 #pragma region GUI
@@ -397,7 +446,7 @@ void AnitoPlume::renderProfiler(Gui* pGui)
     Gui::Window widget(pGui, "Profiler", {500, 200}, {10, 640}, kDefaultWindowFlags);
 
     // TODO: Implement  the profiler
-    widget.text("TODO: Implement the profiler.");
+    widget.text(getFrameRate().getMsg());
 }
 
 #pragma endregion

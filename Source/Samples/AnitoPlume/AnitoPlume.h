@@ -27,8 +27,10 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
+#include "Core/Plugin.h"
 #include "Core/SampleApp.h"
 #include "Core/Pass/RasterPass.h"
+#include "RenderGraph/RenderGraph.h"
 
 using namespace Falcor;
 
@@ -38,6 +40,11 @@ public:
     enum class TerrainByYear
     {
         Year2023, Year2021, Year2019, Year2015
+    };
+
+    enum class RenderMode
+    {
+        Raster, RayTrace, Graph
     };
 
 public:
@@ -58,6 +65,7 @@ private:
     void setPerFrameVars(const Fbo* pTargetFbo);
     void renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo);
     void renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo);
+    void renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo, IScene::UpdateFlags updates);
 
 private:
     void renderMainMenuBar(Gui* pGui);
@@ -84,13 +92,14 @@ private:
     ref<Camera> mpCamera;
     ref<EnvMap> mpEnvMap;
 
+    ref<RenderGraph> mpRenderGraph;
     ref<RasterPass> mpRasterPass;
 
     ref<Program> mpRaytraceProgram;
     ref<RtProgramVars> mpRtVars;
     ref<Texture> mpRtOut;
 
-    bool mRayTrace = true;
+    RenderMode mRenderMode = RenderMode::RayTrace;
     bool mUseDOF = false;
 
     uint32_t mSampleIndex = 0xdeadbeef;
