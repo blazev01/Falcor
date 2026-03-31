@@ -3,6 +3,8 @@ add_falcor_executable(AnitoPlume)
 target_sources(AnitoPlume PRIVATE
     AnitoPlume.cpp
     AnitoPlume.h
+    AnitoPlume.3d.slang
+    AnitoPlume.rt.slang
 )
 
 target_copy_shaders(AnitoPlume Samples/AnitoPlume)
