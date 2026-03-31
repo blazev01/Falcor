@@ -75,7 +75,10 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
     PluginManager::instance().loadAllPlugins();
 
     // Load any .py render graph from Source/Mogwai/Data/
-    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracer.py");
+    //Vaughn
+    //mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracer.py");
+    //Carlos
+    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "C:/src/Falcor2/media/AnitoPlume/scripts/PathTracer.py");
 
     if (mpRenderGraph == nullptr)
     {
