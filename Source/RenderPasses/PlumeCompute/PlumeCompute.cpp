@@ -55,3 +55,8 @@ void PlumeCompute::execute(RenderContext* pRenderContext, const RenderData& rend
 }
 
 void PlumeCompute::renderUI(Gui::Widgets& widget) {}
+
+void PlumeCompute::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+{
+    mpScene = pScene;
+}
