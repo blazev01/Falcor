@@ -99,7 +99,7 @@ private:
     ref<RtProgramVars> mpRtVars;
     ref<Texture> mpRtOut;
 
-    RenderMode mRenderMode = RenderMode::Graph;
+    RenderMode mRenderMode = RenderMode::RayTrace;
     bool mUseDOF = false;
 
     uint32_t mSampleIndex = 0xdeadbeef;

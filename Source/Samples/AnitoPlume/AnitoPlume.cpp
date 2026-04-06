@@ -113,6 +113,9 @@ void AnitoPlume::onResize(uint32_t width, uint32_t height)
     mpRtOut = getDevice()->createTexture2D(
         width, height, ResourceFormat::RGBA16Float, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
     );
+
+    if (mpScene)
+        mpScene->setCameraAspectRatio((float)width / (float)height);
 }
 
 void AnitoPlume::onFrameRender(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)
@@ -182,7 +185,8 @@ bool AnitoPlume::onMouseEvent(const MouseEvent& mouseEvent)
 
 void AnitoPlume::onHotReload(HotReloadFlags reloaded)
 {
-    //
+    if (mpRenderGraph)
+        mpRenderGraph->onHotReload(reloaded);
 }
 
 void AnitoPlume::loadScene(const std::filesystem::path& path, const Fbo* pTargetFbo)
@@ -292,11 +296,13 @@ void AnitoPlume::renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTar
     FALCOR_ASSERT(mpScene);
     FALCOR_PROFILE(pRenderContext, "renderGraph");
 
+    mpRenderGraph->compile(pRenderContext);
+
     // Notify active graph of any scene updates.
     mpRenderGraph->onSceneUpdates(pRenderContext, updates);
 
     // Execute graph.
-    mpRenderGraph->getPassesDictionary()["_refresgFlags"] = RenderPassRefreshFlags::None;
+    mpRenderGraph->getPassesDictionary()[kRenderPassRefreshFlags] = RenderPassRefreshFlags::None;
     mpRenderGraph->execute(pRenderContext);
 
     // Blit main graph output to frame buffer.
