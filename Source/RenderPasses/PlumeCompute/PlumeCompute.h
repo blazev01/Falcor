@@ -54,5 +54,6 @@ public:
 
 private:
     ref<Scene> mpScene;
+    ref<ComputePass> mpComputePass;
 
 };

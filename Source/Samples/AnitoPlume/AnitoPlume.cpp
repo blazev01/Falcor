@@ -76,9 +76,9 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
 
     // Load any .py render graph from Source/Mogwai/Data/
     //Vaughn
-    //mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracer.py");
+    //mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracerNRD.py");
     //Carlos
-    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "C:/src/Falcor2/media/AnitoPlume/scripts/PathTracer.py");
+    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "C:/src/Falcor2/media/AnitoPlume/scripts/PathTracerNRD.py");
 
     if (mpRenderGraph == nullptr)
     {

@@ -32,7 +32,18 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, PlumeCompute>();
 }
 
-PlumeCompute::PlumeCompute(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {}
+PlumeCompute::PlumeCompute(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+{
+    // Load and compile the .slang compute shader
+    // ProgramDesc describes the shader source and entry point
+    ProgramDesc desc;
+
+    // entry point name matches [numthreads] function
+    desc.addShaderLibrary("RenderPasses/PlumeCompute/PlumeCompute.cs.slang").csEntry("main");
+
+    // ComputePass wraps the program + var bindings together
+    mpComputePass = ComputePass::create(pDevice, desc);
+}
 
 Properties PlumeCompute::getProperties() const
 {
@@ -41,20 +52,58 @@ Properties PlumeCompute::getProperties() const
 
 RenderPassReflection PlumeCompute::reflect(const CompileData& compileData)
 {
-    // Define the required resources here
     RenderPassReflection reflector;
-    // reflector.addOutput("dst");
-    // reflector.addInput("src");
+
+    // Declare an input texture slot named "input"
+    // The render graph wires this to the previous pass's output
+    reflector.addInput("input", "Input color texture").bindFlags(ResourceBindFlags::ShaderResource).format(ResourceFormat::RGBA32Float);
+
+    // Declare an output texture slot named "output"
+    reflector.addOutput("output", "Processed output texture")
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::RGBA32Float);
+
     return reflector;
 }
 
 void PlumeCompute::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData.getTexture("src");
+    // Grab textures from the render graph by their declared names
+    ref<Texture> pInput = renderData.getTexture("input");
+    ref<Texture> pOutput = renderData.getTexture("output");
+
+    FALCOR_ASSERT(pInput && pOutput);
+
+    // TODO: Add any additional resources (buffers, samplers, etc.) and bind them here
+
+    // --- Bind shader variables ---
+    // ShaderVar gives type-safe access to cbuffer/resource slots by name
+    auto var = mpComputePass->getRootVar();
+
+    // Set cbuffer fields (maps to PerFrameCB in the shader)
+    //var["PerFrameCB"]["gResolution"] = uint2(pOutput->getWidth(), pOutput->getHeight());
+    //var["PerFrameCB"]["gTime"] = mTime;
+
+    // Bind textures (names match resource declarations in .slang)
+    var["gInputTex"] = pInput;
+    var["gOutputTex"] = pOutput;
+
+    // Bind textures (names match resource declarations in .slang)
+    var["gInputTex"] = pInput;
+    var["gOutputTex"] = pOutput;
+
+    // --- Dispatch ---
+    // Calculate number of thread groups needed to cover the output
+    uint32_t groupsX = div_round_up(pOutput->getWidth(), 0U);
+    uint32_t groupsY = div_round_up(pOutput->getHeight(), 0U);
+
+    mpComputePass->execute(pRenderContext, groupsX, groupsY, 1);
 }
 
-void PlumeCompute::renderUI(Gui::Widgets& widget) {}
+void PlumeCompute::renderUI(Gui::Widgets& widget)
+{
+
+}
 
 void PlumeCompute::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
