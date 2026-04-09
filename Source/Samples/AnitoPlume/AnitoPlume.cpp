@@ -32,9 +32,9 @@
 
 FALCOR_EXPORT_D3D12_AGILITY_SDK
 
-static const float4 kClearColor(0.38f, 0.52f, 0.10f, 1);
+static const float4 kClearColor(0.3f, 0.6f, 1.0f, 1);
 static const std::string kDefaultScene = "AnitoPlume/Taal.pyscene";
-static const std::string kTaalMinimapPath = "AnitoPlume/TexturesUI/TaalMinimap.png";
+static const std::string kTaalMinimapPath = "D:/VS/Falcor/media/AnitoPlume/TexturesUI/TaalMinimap.png";
 static const Gui::WindowFlags kDefaultWindowFlags =
     Gui::WindowFlags::ShowTitleBar |
     Gui::WindowFlags::AllowMove |
@@ -45,6 +45,14 @@ const Gui::DropdownList kCameraControllerTypeList = {
     {(uint32_t)Scene::CameraControllerType::FirstPerson, "First Person"},
     {(uint32_t)Scene::CameraControllerType::Orbiter, "Orbiter"},
     {(uint32_t)Scene::CameraControllerType::SixDOF, "6-DOF"},
+};
+
+const Gui::DropdownList kEruptionVentList = {
+    {(uint32_t)AnitoPlume::EruptionVent::TaalMainCrater, "Taal Main Crater"},
+    {(uint32_t)AnitoPlume::EruptionVent::BinintiangMalaki, "Binintiang Malaki"},
+    {(uint32_t)AnitoPlume::EruptionVent::BinintiangMunti, "Binintiang Munti"},
+    {(uint32_t)AnitoPlume::EruptionVent::Pirapiraso, "Pirapiraso"},
+    //{(uint32_t)AnitoPlume::EruptionVent::CaluitPoint, "Caluit Point"},
 };
 
 const Gui::DropdownList kTerrainByYearList = {
@@ -76,16 +84,23 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
 
     // Load any .py render graph from Source/Mogwai/Data/
     //Vaughn
-    //mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracerNRD.py");
+    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracer.py");
     //Carlos
-    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "C:/src/Falcor2/media/AnitoPlume/scripts/PathTracerNRD.py");
+    //mpRenderGraph = RenderGraph::createFromFile(getDevice(), "C:/src/Falcor2/media/AnitoPlume/scripts/PathTracerNRD.py");
 
     if (mpRenderGraph == nullptr)
     {
         FALCOR_THROW("Failed to load render graph from file.");
     }
-    
+
+    mpResetIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/ResetIcon.png", true, false);
+    mpPlayIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/PlayIcon.png", true, false);
+    mpPauseIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/PauseIcon.png", true, false);
+    mpStopIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/StopIcon.png", true, false);
     mpTaalMinimap = Texture::createFromFile(getDevice(), kTaalMinimapPath, true, false);
+
+    mpParticles = ParticleSystem::create();
+    mpParticles->init(pRenderContext, getDevice());
 
     loadScene(kDefaultScene, getTargetFbo().get());
     getDevice()->getProfiler()->setEnabled(true);
@@ -166,11 +181,23 @@ void AnitoPlume::onGuiRender(Gui* pGui)
 
 bool AnitoPlume::onKeyEvent(const KeyboardEvent& keyEvent)
 {
-    //if (keyEvent.key == Input::Key::Space && keyEvent.type == KeyboardEvent::Type::KeyPressed)
-    //{
-    //    mRayTrace = !mRayTrace;
-    //    return true;
-    //}
+    if (keyEvent.key == Input::Key::Key1 && keyEvent.type == KeyboardEvent::Type::KeyPressed)
+    {
+        mRenderMode = RenderMode::Raster;
+        return true;
+    }
+
+    if (keyEvent.key == Input::Key::Key2 && keyEvent.type == KeyboardEvent::Type::KeyPressed)
+    {
+        mRenderMode = RenderMode::RayTrace;
+        return true;
+    }
+
+    if (keyEvent.key == Input::Key::Key3 && keyEvent.type == KeyboardEvent::Type::KeyPressed)
+    {
+        mRenderMode = RenderMode::Graph;
+        return true;
+    }
 
     if (mpScene && mpScene->onKeyEvent(keyEvent))
         return true;
@@ -277,6 +304,7 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
 
     mpRasterPass->getState()->setFbo(pTargetFbo);
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
+    mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
 }
 
 void AnitoPlume::renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)
@@ -328,27 +356,93 @@ void AnitoPlume::renderMainMenuBar(Gui* pGui)
 
 void AnitoPlume::renderSimulatorInput(Gui* pGui)
 {
-    Gui::Window widget(pGui, "Simulator Input", {400, 600}, {10, 20}, kDefaultWindowFlags);
+    Gui::Window widget(pGui, "Simulator Input", {400, 530}, {10, 20}, kDefaultWindowFlags);
 
     // TODO: Implement simulator input
     if (auto windSettings = widget.group("Wind Settings", true))
     {
-        widget.text("TODO: Implement wind settings.");
+        widget.rect({480, 338});
+        widget.dummy("##WindSettingsStart", {0, 4});
+        widget.indent(10);
+
+        widget.graph("##Intensity", AnitoPlume::windIntensityGraphCallback, this, 5, 0, 0.0f, 200.0f);
+        widget.graph("##Angle", AnitoPlume::windIntensityGraphCallback, this, 5, 0, 0.0f, 360.0f);
+        widget.slider("Altitude", mAltitude, 0.0, 10000.0);
+        widget.button("No wind");
+        widget.button("Linear wind", true);
+        widget.button("Max intensity", true);
+        widget.checkbox("Use all angles", mUseAllAngles, true);
+        widget.slider("Linear wind speed", mLinearWindSpeed, 0.0, 80.0);
+        widget.button("Set 2020 eruption winds");
+
+        widget.indent(-10);
+        widget.dummy("##WindSettingsEnd", {0, 8});
     }
 
     if (auto eruptionParameters = widget.group("Eruption Parameters", true))
     {
-        widget.text("TODO: Implement eruption parameters.");
+        widget.rect({480, 220});
+        widget.dummy("##EruptionParametersStart", {0, 4});
+        widget.indent(10);
+
+        widget.button("Enable all vents");
+        widget.button("Enable selected vent only", true);
+        EruptionVent vent = mEruptionVent;
+        if (widget.dropdown("Eruption Vent", kEruptionVentList, reinterpret_cast<uint32_t&>(vent)))
+            mEruptionVent = vent;
+        widget.separator();
+        widget.checkbox("Erupt on play", mEruptOnPlay);
+        widget.button("Reset to default", true);
+        widget.slider("Initial Plume Speed", mInitialPlumeSpeed, 0.0, 200.0);
+        widget.slider("Initial Plume Density", mInitialPlumeDensity, 0.0, 400.0);
+        widget.slider("Vent Radius", mVentRadius, 0.0, 1000.0);
+        widget.slider("Vent Altitude", mVentAltitude, 0.0, 1000.0);
+
+        widget.indent(-10);
+        widget.dummy("##EruptionParametersEnd", {0, 4});
     }
 
 }
 
 void AnitoPlume::renderPlayback(Gui* pGui)
 {
-    Gui::Window widget(pGui, "Playback", {400, 100}, {600, 20}, kDefaultWindowFlags);
+    Gui::Window widget(pGui, "Playback", {300, 100}, {600, 20}, kDefaultWindowFlags);
 
-    // TODO: Implement playback controls
-    widget.text("TODO: Implement playback controls.");
+    double timeScale = getGlobalClock().getTimeScale();
+    widget.indent(40);
+    if (widget.slider("Time scale", timeScale, 0.1, 10.0), false)
+        getGlobalClock().setTimeScale(timeScale);
+
+    widget.indent(50);
+    Falcor::float2 buttonSize = {40, 40};
+    if (mpResetIcon != nullptr && widget.imageButton("Reset", mpResetIcon.get(), buttonSize, true, false))
+    {
+        // TODO: Implement reset functionality
+    }
+
+    if (mSimulatorState != SimulatorState::Playing &&
+        mpPlayIcon != nullptr &&
+        widget.imageButton("Play", mpPlayIcon.get(), buttonSize, true, true))
+    {
+        mSimulatorState = SimulatorState::Playing;
+        // TODO: Implement play functionality
+    }
+
+    if (mSimulatorState == SimulatorState::Playing &&
+        mpPauseIcon != nullptr &&
+        widget.imageButton("Pause", mpPauseIcon.get(), buttonSize, true, true))
+    {
+        mSimulatorState = SimulatorState::Paused;
+        // TODO: Implement pause functionality
+    }
+
+    if (mSimulatorState != SimulatorState::Stopped &&
+        mpStopIcon != nullptr &&
+        widget.imageButton("Stop", mpStopIcon.get(), buttonSize, true, true))
+    {
+        mSimulatorState = SimulatorState::Stopped;
+        // TODO: Implement stop functionality
+    }
 }
 
 void AnitoPlume::renderCameraSettings(Gui* pGui)
@@ -359,15 +453,11 @@ void AnitoPlume::renderCameraSettings(Gui* pGui)
 
     auto cameraControllerType = mpScene->getCameraControllerType();
     if (widget.dropdown("Camera Controller", kCameraControllerTypeList, reinterpret_cast<uint32_t&>(cameraControllerType)))
-    {
         mpScene->setCameraController(cameraControllerType);
-    }
 
     float mCameraSpeed = mpScene->getCameraSpeed();
     if (widget.var("Camera Speed", mCameraSpeed, 0.f, std::numeric_limits<float>::max(), 0.01f))
-    {
         mpScene->setCameraSpeed(mCameraSpeed);
-    }
 
     float3 pos = camera->getPosition();
     if (widget.var("Position", pos, -FLT_MAX, FLT_MAX, 0.001f, false, "%.4f"))
@@ -437,25 +527,40 @@ void AnitoPlume::renderPlumeDirectionTracker(Gui* pGui)
 {
     Gui::Window widget(pGui, "Plume Direction Tracker", {500, 300}, {1030, 530}, kDefaultWindowFlags);
 
-    // TODO: Implement the plume direction tracker
-    widget.text("TODO: Implement the plume direction tracker.");
-
     if (mpTaalMinimap)
+        widget.image("##Taal Minimap", mpTaalMinimap.get(), {300, 300});
+
+    widget.rect({290, 300}, {1.0f, 1.0f, 1.0f, 1.0f}, false, true);
+    widget.text("Affected Areas");
+
+    if (widget.checkbox("Display layered view", mDisplayLayeredView))
     {
-        //widget.image("##Taal Minimap", mpTaalMinimap, {256, 256});
+
     }
-    else
+
+    if (widget.checkbox("Display wind vectors", mDisplayWindVectors, true))
     {
-        widget.text("Failed to load Taal minimap texture.");
+
     }
 }
 
 void AnitoPlume::renderProfiler(Gui* pGui)
 {
-    Gui::Window widget(pGui, "Profiler", {500, 200}, {10, 640}, kDefaultWindowFlags);
+    Gui::Window widget(pGui, "Profiler", {500, 200}, {10, 620}, kDefaultWindowFlags);
 
     // TODO: Implement  the profiler
     widget.text(getFrameRate().getMsg());
+}
+
+float AnitoPlume::windIntensityGraphCallback(void*, int32_t index)
+{
+
+    return 0.0f;
+}
+
+float AnitoPlume::windAngleGraphCallback(void*, int32_t index)
+{
+    return 0.0f;
 }
 
 #pragma endregion

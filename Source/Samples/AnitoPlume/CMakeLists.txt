@@ -5,6 +5,9 @@ target_sources(AnitoPlume PRIVATE
     AnitoPlume.h
     AnitoPlume.3d.slang
     AnitoPlume.rt.slang
+    Particles.cs.slang
+    ParticleSystem.cpp
+    ParticleSystem.h
 )
 
 target_copy_shaders(AnitoPlume Samples/AnitoPlume)

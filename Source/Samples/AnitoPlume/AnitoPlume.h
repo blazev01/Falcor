@@ -31,20 +31,31 @@
 #include "Core/SampleApp.h"
 #include "Core/Pass/RasterPass.h"
 #include "RenderGraph/RenderGraph.h"
+#include "ParticleSystem.h"
 
 using namespace Falcor;
 
 class AnitoPlume : public SampleApp
 {
 public:
-    enum class TerrainByYear
-    {
-        Year2023, Year2021, Year2019, Year2015
-    };
-
     enum class RenderMode
     {
         Raster, RayTrace, Graph
+    };
+
+    enum class SimulatorState
+    {
+        Stopped, Playing, Paused
+    };
+
+    enum class EruptionVent
+    {
+        TaalMainCrater, BinintiangMalaki, BinintiangMunti, Pirapiraso, CaluitPoint
+    };
+
+    enum class TerrainByYear
+    {
+        Year2023, Year2021, Year2019, Year2015
     };
 
 public:
@@ -68,6 +79,7 @@ private:
     void renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo, IScene::UpdateFlags updates);
 
 private:
+    // TODO: Add to separate classes to better organize the code and separate responsibilities.
     void renderMainMenuBar(Gui* pGui);
     void renderSimulatorInput(Gui* pGui);
     void renderPlayback(Gui* pGui);
@@ -77,6 +89,24 @@ private:
     void renderProfiler(Gui* pGui);
 
 private:
+    static float windIntensityGraphCallback(void*, int32_t index);
+    static float windAngleGraphCallback(void*, int32_t index);
+
+private:
+    // Simulator Input : Wind Settings
+    double mAltitude = 0.0;
+    double mLinearWindSpeed = 0.0;
+    bool mUseAllAngles = false;
+
+    // Simulator Input : Eruption Parameters
+    EruptionVent mEruptionVent = EruptionVent::TaalMainCrater;
+    bool mEruptOnPlay = true;
+    double mInitialPlumeSpeed = 150.0;
+    double mInitialPlumeDensity = 200.0;
+    double mVentRadius = 100.0;
+    double mVentAltitude = 0.0;
+
+    // Display Settings
     TerrainByYear mTerrainByYear = TerrainByYear::Year2023;
     bool mDisplayLandmarks = true;
     bool mDisplayInfoUI = true;
@@ -85,12 +115,23 @@ private:
     bool mDisplaySpheresWithSubspheres = false;
     bool mDisplayTorusLayers = false;
 
+    // Playback
+    ref<Texture> mpResetIcon;
+    ref<Texture> mpPlayIcon;
+    ref<Texture> mpPauseIcon;
+    ref<Texture> mpStopIcon;
+    SimulatorState mSimulatorState = SimulatorState::Stopped;
+
+    // Plume Direction Tracker
     ref<Texture> mpTaalMinimap;
+    bool mDisplayLayeredView = true;
+    bool mDisplayWindVectors = true;
 
 private:
     ref<Scene> mpScene;
     ref<Camera> mpCamera;
     ref<EnvMap> mpEnvMap;
+    ref<ParticleSystem> mpParticles;
 
     ref<RenderGraph> mpRenderGraph;
     ref<RasterPass> mpRasterPass;
@@ -99,7 +140,7 @@ private:
     ref<RtProgramVars> mpRtVars;
     ref<Texture> mpRtOut;
 
-    RenderMode mRenderMode = RenderMode::RayTrace;
+    RenderMode mRenderMode = RenderMode::Raster;
     bool mUseDOF = false;
 
     uint32_t mSampleIndex = 0xdeadbeef;
