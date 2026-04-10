@@ -29,6 +29,7 @@
 #include "Falcor.h"
 #include "Core/Plugin.h"
 #include "Core/SampleApp.h"
+#include "Core/AssetResolver.h"
 #include "Core/Pass/RasterPass.h"
 #include "RenderGraph/RenderGraph.h"
 #include "ParticleSystem.h"
@@ -79,6 +80,8 @@ private:
     void renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo, IScene::UpdateFlags updates);
 
 private:
+    ref<Texture> createGUITexture(const std::filesystem::path& path);
+
     // TODO: Add to separate classes to better organize the code and separate responsibilities.
     void renderMainMenuBar(Gui* pGui);
     void renderSimulatorInput(Gui* pGui);
@@ -144,4 +147,6 @@ private:
     bool mUseDOF = false;
 
     uint32_t mSampleIndex = 0xdeadbeef;
+
+    AssetResolver mAssetResolver;
 };

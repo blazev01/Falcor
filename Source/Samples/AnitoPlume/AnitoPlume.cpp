@@ -34,12 +34,18 @@ FALCOR_EXPORT_D3D12_AGILITY_SDK
 
 static const float4 kClearColor(0.3f, 0.6f, 1.0f, 1);
 static const std::string kDefaultScene = "AnitoPlume/Taal.pyscene";
-static const std::string kTaalMinimapPath = "D:/VS/Falcor/media/AnitoPlume/TexturesUI/TaalMinimap.png";
 static const Gui::WindowFlags kDefaultWindowFlags =
     Gui::WindowFlags::ShowTitleBar |
     Gui::WindowFlags::AllowMove |
     Gui::WindowFlags::NoResize |
     Gui::WindowFlags::CloseButton;
+
+// GUI texture paths
+static const std::string kResetIconPath = "AnitoPlume/TexturesUI/ResetIcon.png";
+static const std::string kPlayIconPath = "AnitoPlume/TexturesUI/PlayIcon.png";
+static const std::string kPauseIconPath = "AnitoPlume/TexturesUI/PauseIcon.png";
+static const std::string kStopIconPath = "AnitoPlume/TexturesUI/StopIcon.png";
+static const std::string kTaalMinimapPath = "AnitoPlume/TexturesUI/TaalMinimap.png";
 
 const Gui::DropdownList kCameraControllerTypeList = {
     {(uint32_t)Scene::CameraControllerType::FirstPerson, "First Person"},
@@ -81,23 +87,22 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
 
     // Load all render pass plugins (PathTracer, GBuffer, etc.)
     PluginManager::instance().loadAllPlugins();
+    mAssetResolver = AssetResolver::getDefaultResolver();
 
     // Load any .py render graph from Source/Mogwai/Data/
-    //Vaughn
-    mpRenderGraph = RenderGraph::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/scripts/PathTracer.py");
-    //Carlos
-    //mpRenderGraph = RenderGraph::createFromFile(getDevice(), "C:/src/Falcor2/media/AnitoPlume/scripts/PathTracerNRD.py");
+    std::filesystem::path scriptPath = mAssetResolver.resolvePath("AnitoPlume/scripts/PathTracer.py", AssetCategory::Scene);
+    mpRenderGraph = RenderGraph::createFromFile(getDevice(), scriptPath);
 
     if (mpRenderGraph == nullptr)
     {
         FALCOR_THROW("Failed to load render graph from file.");
     }
 
-    mpResetIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/ResetIcon.png", true, false);
-    mpPlayIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/PlayIcon.png", true, false);
-    mpPauseIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/PauseIcon.png", true, false);
-    mpStopIcon = Texture::createFromFile(getDevice(), "D:/VS/Falcor/media/AnitoPlume/TexturesUI/StopIcon.png", true, false);
-    mpTaalMinimap = Texture::createFromFile(getDevice(), kTaalMinimapPath, true, false);
+    mpResetIcon = createGUITexture(kResetIconPath);
+    mpPlayIcon = createGUITexture(kPlayIconPath);
+    mpPauseIcon = createGUITexture(kPauseIconPath);
+    mpStopIcon = createGUITexture(kStopIconPath);
+    mpTaalMinimap = createGUITexture(kTaalMinimapPath);
 
     mpParticles = ParticleSystem::create();
     mpParticles->init(pRenderContext, getDevice());
@@ -340,6 +345,12 @@ void AnitoPlume::renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTar
 
 }
 
+ref<Texture> AnitoPlume::createGUITexture(const std::filesystem::path& path)
+{
+    std::filesystem::path resolvedPath = mAssetResolver.resolvePath(path, AssetCategory::Scene);
+    return Texture::createFromFile(getDevice(), resolvedPath.string(), true, false);
+}
+
 #pragma region GUI
 
 void AnitoPlume::renderMainMenuBar(Gui* pGui)
@@ -367,12 +378,12 @@ void AnitoPlume::renderSimulatorInput(Gui* pGui)
 
         widget.graph("##Intensity", AnitoPlume::windIntensityGraphCallback, this, 5, 0, 0.0f, 200.0f);
         widget.graph("##Angle", AnitoPlume::windIntensityGraphCallback, this, 5, 0, 0.0f, 360.0f);
-        widget.slider("Altitude", mAltitude, 0.0, 10000.0);
+        widget.slider("Altitude", mAltitude, 0.0, 10000.0, false, "%.0f m");
         widget.button("No wind");
         widget.button("Linear wind", true);
         widget.button("Max intensity", true);
         widget.checkbox("Use all angles", mUseAllAngles, true);
-        widget.slider("Linear wind speed", mLinearWindSpeed, 0.0, 80.0);
+        widget.slider("Linear wind speed", mLinearWindSpeed, 0.0, 80.0, false, "%.2f m/s");
         widget.button("Set 2020 eruption winds");
 
         widget.indent(-10);
@@ -393,10 +404,10 @@ void AnitoPlume::renderSimulatorInput(Gui* pGui)
         widget.separator();
         widget.checkbox("Erupt on play", mEruptOnPlay);
         widget.button("Reset to default", true);
-        widget.slider("Initial Plume Speed", mInitialPlumeSpeed, 0.0, 200.0);
-        widget.slider("Initial Plume Density", mInitialPlumeDensity, 0.0, 400.0);
-        widget.slider("Vent Radius", mVentRadius, 0.0, 1000.0);
-        widget.slider("Vent Altitude", mVentAltitude, 0.0, 1000.0);
+        widget.slider("Initial Plume Speed", mInitialPlumeSpeed, 0.0, 200.0, false, "%.2f m/s");
+        widget.slider("Initial Plume Density", mInitialPlumeDensity, 0.0, 400.0, false, "%.2f kg/m3");
+        widget.slider("Vent Radius", mVentRadius, 0.0, 1000.0, false, "%.2f m");
+        widget.slider("Vent Altitude", mVentAltitude, 0.0, 1000.0, false, "%.2f m");
 
         widget.indent(-10);
         widget.dummy("##EruptionParametersEnd", {0, 4});
@@ -410,7 +421,7 @@ void AnitoPlume::renderPlayback(Gui* pGui)
 
     double timeScale = getGlobalClock().getTimeScale();
     widget.indent(40);
-    if (widget.slider("Time scale", timeScale, 0.1, 10.0), false)
+    if (widget.slider("Time scale", timeScale, 0.1, 10.0, false, "%.2f"))
         getGlobalClock().setTimeScale(timeScale);
 
     widget.indent(50);
@@ -456,15 +467,15 @@ void AnitoPlume::renderCameraSettings(Gui* pGui)
         mpScene->setCameraController(cameraControllerType);
 
     float mCameraSpeed = mpScene->getCameraSpeed();
-    if (widget.var("Camera Speed", mCameraSpeed, 0.f, std::numeric_limits<float>::max(), 0.01f))
+    if (widget.var("Camera Speed", mCameraSpeed, 0.f, std::numeric_limits<float>::max(), 0.01f, false, "%.2f"))
         mpScene->setCameraSpeed(mCameraSpeed);
 
     float3 pos = camera->getPosition();
-    if (widget.var("Position", pos, -FLT_MAX, FLT_MAX, 0.001f, false, "%.4f"))
+    if (widget.var("Position", pos, -FLT_MAX, FLT_MAX, 0.001f, false, "%.2f"))
         camera->setPosition(pos);
 
     float3 target = camera->getTarget();
-    if (widget.var("Target", target, -FLT_MAX, FLT_MAX, 0.001f, false, "%.4f"))
+    if (widget.var("Target", target, -FLT_MAX, FLT_MAX, 0.001f, false, "%.2f"))
         camera->setTarget(target);
 
     if (auto cameraGroup = widget.group("More Settings"))
