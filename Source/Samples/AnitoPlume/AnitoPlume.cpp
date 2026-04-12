@@ -309,7 +309,7 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
 
     mpRasterPass->getState()->setFbo(pTargetFbo);
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
-    mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
+    mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
 }
 
 void AnitoPlume::renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)

@@ -1,98 +1,190 @@
 #include "ParticleSystem.h"
 
-using namespace Falcor;
-
+// Call once inside onLoad() after mpDevice is valid.
 void ParticleSystem::init(RenderContext* pCtx, ref<Device> pDevice)
 {
-    // ── Compile the two compute passes ──────────────────────────────────
-    ProgramDesc emitDesc;
-    emitDesc.addShaderLibrary("Samples/AnitoPlume/Particles.cs.slang").csEntry("emitParticles");
-    mpEmitPass = ComputePass::create(pDevice, emitDesc);
+    mpDevice = pDevice;
 
-    ProgramDesc updateDesc;
-    updateDesc.addShaderLibrary("Samples/AnitoPlume/Particles.cs.slang").csEntry("updateParticles");
-    mpUpdatePass = ComputePass::create(pDevice, updateDesc);
-
-    // ── Particle buffer ─────────────────────────────────────────────────
-    // Each Particle is (float3 pos, float age, float3 vel, float lifetime,
-    //                   float4 color, float size, uint flags) = 15 floats + 1 uint = 64 bytes
-    mpParticleBuffer = pDevice->createStructuredBuffer(
-        sizeof(Particle), kMaxParticles,
-        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
-        MemoryType::DeviceLocal, nullptr, false);
-
-    // ── Dead list: pre-fill with every index (all slots free at start) ─
-    std::vector<uint32_t> deadIndices(kMaxParticles);
-    std::iota(deadIndices.begin(), deadIndices.end(), 0);
-    mpDeadList = pDevice->createStructuredBuffer(
-        sizeof(uint32_t), kMaxParticles,
-        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
-        MemoryType::DeviceLocal, deadIndices.data(), false);
-
-    // ── Alive list: output of update pass, read by renderer ─────────────
-    mpAliveList = pDevice->createStructuredBuffer(
-        sizeof(uint32_t), kMaxParticles,
-        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
-        MemoryType::DeviceLocal, nullptr, false);
-
-    // ── Counter buffer: [0]=deadCount (init=kMaxParticles), [1]=aliveCount ─
-    uint32_t initCounters[2] = { kMaxParticles, 0 };
-    mpCounters = pDevice->createBuffer(
-        kCounterBytes,
-        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
-        MemoryType::DeviceLocal, initCounters);
-
-    mpVars = nullptr; // will be bound lazily below
+    initBuffers();
+    initComputePasses();
+    initBillboardPass();
 }
 
-// Call every frame inside your renderFrame() or execute() callback.
+// Call every frame — dispatches emit + update compute passes.
 void ParticleSystem::simulate(RenderContext* pCtx, float deltaTime)
 {
     mFrameSeed++;
 
-    // ── Reset alive counter to 0 each frame before update pass ──────────
-    // (dead counter is managed atomically by the shaders themselves)
+    // Reset alive counter each frame; dead counter is managed atomically
     uint32_t zero = 0;
     pCtx->updateBuffer(mpCounters.get(), &zero, sizeof(uint32_t), sizeof(uint32_t));
 
-    // ── Bind resources shared by both passes ─────────────────────────────
-    auto bindCommon = [&](ShaderVar& vars) {
-        vars["gParticles"] = mpParticleBuffer;
-        vars["gDeadList"]  = mpDeadList;
-        vars["gAliveList"] = mpAliveList;
-        vars["gCounters"]  = mpCounters;
+    bindComputeResources(mpEmitPass->getRootVar(), deltaTime);
+    bindComputeResources(mpUpdatePass->getRootVar(), deltaTime);
 
-        auto cb = vars["PerFrameCB"];
-        cb["gEmitterPos"]    = mEmitterPos;
-        cb["gDeltaTime"]     = deltaTime;
-        cb["gEmitDirection"] = mEmitDirection;
-        cb["gEmitSpeed"]     = mEmitSpeed;
-        cb["gGravity"]       = mGravity;
-        cb["gSpreadAngle"]   = mSpreadAngle;
-        cb["gStartColor"]    = mStartColor;
-        cb["gEndColor"]      = mEndColor;
-        cb["gMinLifetime"]   = mMinLifetime;
-        cb["gMaxLifetime"]   = mMaxLifetime;
-        cb["gMinSize"]       = mMinSize;
-        cb["gMaxSize"]       = mMaxSize;
-        cb["gEmitCount"]     = mEmitPerFrame;
-        cb["gMaxParticles"]  = kMaxParticles;
-        cb["gFrameSeed"]     = mFrameSeed;
-    };
+    // ── Emit ──────────────────────────────────────────────────────────────
+    mpEmitPass->execute(pCtx, divUp(mEmitPerFrame, 64u), 1, 1);
 
-    // ── Emit pass: spawn new particles ──────────────────────────────────
-    {
-        ShaderVar vars = mpEmitPass->getRootVar();
-        bindCommon(vars);
-        uint32_t groups = div_round_up(mEmitPerFrame, 64u);
-        mpEmitPass->execute(pCtx, groups, 1, 1);
-    }
+    // ── Update ────────────────────────────────────────────────────────────
+    mpUpdatePass->execute(pCtx, divUp(kMaxParticles, 64u), 1, 1);
+}
 
-    // ── Update pass: simulate all slots ─────────────────────────────────
-    {
-        ShaderVar vars = mpUpdatePass->getRootVar();
-        bindCommon(vars);
-        uint32_t groups = div_round_up(kMaxParticles, 64u);
-        mpUpdatePass->execute(pCtx, groups, 1, 1);
-    }
+// Call every frame after simulate() — composites billboards onto pTargetFbo.
+void ParticleSystem::render(RenderContext* pCtx, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
+{
+    // CPU readback of alive count.
+    // Replace with drawIndirect to avoid the GPU flush once stable.
+    uint32_t aliveCount = readAliveCount(pCtx);
+    if (aliveCount == 0)
+        return;
+
+    // Camera basis vectors for axis-aligned billboarding
+    float4x4 view = pCamera->getViewMatrix();
+    float3 camRight = {view[0][0], view[1][0], view[2][0]};
+    float3 camUp = {view[0][1], view[1][1], view[2][1]};
+
+    // Bind buffers and constant data via the RasterPass root var
+    ShaderVar vars = mpBillboardPass->getRootVar();
+    vars["gParticles"] = mpParticleBuffer;
+    vars["gAliveList"] = mpAliveList;
+
+    vars["BillboardCB"]["gViewProj"] = pCamera->getViewProjMatrix();
+    vars["BillboardCB"]["gCameraRight"] = camRight;
+    vars["BillboardCB"]["gCameraUp"] = camUp;
+
+    // 4 vertices per particle (triangle strip quad), no index buffer.
+    // RasterPass::execute() sets the FBO, scissors, and viewport then
+    // forwards to pCtx->drawIndexed() internally.
+    mpBillboardPass->drawIndexed(pCtx, pTargetFbo, 4, aliveCount);
+}
+
+void ParticleSystem::initBuffers()
+{
+    // Particle data store
+    mpParticleBuffer = mpDevice->createStructuredBuffer(
+        sizeof(Particle),
+        kMaxParticles,
+        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+        MemoryType::DeviceLocal,
+        nullptr,
+        false
+    );
+
+    // Dead list — pre-fill with all indices (every slot free at start)
+    std::vector<uint32_t> deadIndices(kMaxParticles);
+    std::iota(deadIndices.begin(), deadIndices.end(), 0);
+    mpDeadList = mpDevice->createStructuredBuffer(
+        sizeof(uint32_t),
+        kMaxParticles,
+        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+        MemoryType::DeviceLocal,
+        deadIndices.data(),
+        false
+    );
+
+    // Alive list — compacted each frame by the update pass
+    mpAliveList = mpDevice->createStructuredBuffer(
+        sizeof(uint32_t),
+        kMaxParticles,
+        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+        MemoryType::DeviceLocal,
+        nullptr,
+        false
+    );
+
+    // Counter buffer: [0] = deadCount (full), [1] = aliveCount (zero)
+    uint32_t initCounters[2] = {kMaxParticles, 0};
+    mpCounters = mpDevice->createBuffer(
+        kCounterBytes,
+        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess,
+        MemoryType::DeviceLocal,
+        initCounters
+    );
+}
+
+void ParticleSystem::initComputePasses()
+{
+    mpEmitPass = ComputePass::create(mpDevice, "Samples/AnitoPlume/Particles.cs.slang", "emitParticles");
+    mpUpdatePass = ComputePass::create(mpDevice, "Samples/AnitoPlume/Particles.cs.slang", "updateParticles");
+}
+
+void ParticleSystem::initBillboardPass()
+{
+    // RasterPass takes a Program::Desc the same way HelloDXR constructs its
+    // own raster passes — no manual GraphicsState or GraphicsVars needed.
+    ProgramDesc billboardDesc;
+    billboardDesc.addShaderLibrary("Samples/AnitoPlume/ParticleBillboard.3d.slang").vsEntry("vsMain").psEntry("psMain");
+
+    mpBillboardPass = RasterPass::create(mpDevice, billboardDesc);
+
+    // ── Blend: standard src-alpha over ────────────────────────────────────
+    BlendState::Desc blendDesc;
+    blendDesc.setRtBlend(0, true).setRtParams(
+        0,
+        BlendState::BlendOp::Add,
+        BlendState::BlendOp::Add,
+        BlendState::BlendFunc::SrcAlpha,
+        BlendState::BlendFunc::OneMinusSrcAlpha,
+        BlendState::BlendFunc::One,
+        BlendState::BlendFunc::OneMinusSrcAlpha
+    );
+
+    // ── Depth: test against scene depth, do not write ─────────────────────
+    DepthStencilState::Desc dsDesc;
+    dsDesc.setDepthWriteMask(false);
+
+    // ── Rasterizer: no backface culling ───────────────────────────────────
+    RasterizerState::Desc rsDesc;
+    rsDesc.setCullMode(RasterizerState::CullMode::None);
+
+    // ── Topology: triangle strip, positions built in the vertex shader ─────
+    // RasterPass exposes its internal GraphicsState directly for cases like
+    // this where the topology or blend state need to differ from the default.
+    mpBillboardPass->getState()->setBlendState(BlendState::create(blendDesc));
+    mpBillboardPass->getState()->setDepthStencilState(DepthStencilState::create(dsDesc));
+    mpBillboardPass->getState()->setRasterizerState(RasterizerState::create(rsDesc));
+    mpBillboardPass->getState()->setVao(Vao::create(Vao::Topology::TriangleStrip));
+}
+
+// =========================================================================
+// Per-frame helpers
+// =========================================================================
+
+// Binds all buffers and the constant buffer onto a compute pass root var.
+void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
+{
+    vars["gParticles"] = mpParticleBuffer;
+    vars["gDeadList"] = mpDeadList;
+    vars["gAliveList"] = mpAliveList;
+    vars["gCounters"] = mpCounters;
+
+    vars["PerFrameCB"]["gEmitterPos"] = mEmitterPos;
+    vars["PerFrameCB"]["gDeltaTime"] = deltaTime;
+    vars["PerFrameCB"]["gEmitDirection"] = mEmitDirection;
+    vars["PerFrameCB"]["gEmitSpeed"] = mEmitSpeed;
+    vars["PerFrameCB"]["gGravity"] = mGravity;
+    vars["PerFrameCB"]["gSpreadAngle"] = mSpreadAngle;
+    vars["PerFrameCB"]["gStartColor"] = mStartColor;
+    vars["PerFrameCB"]["gEndColor"] = mEndColor;
+    vars["PerFrameCB"]["gMinLifetime"] = mMinLifetime;
+    vars["PerFrameCB"]["gMaxLifetime"] = mMaxLifetime;
+    vars["PerFrameCB"]["gMinSize"] = mMinSize;
+    vars["PerFrameCB"]["gMaxSize"] = mMaxSize;
+    vars["PerFrameCB"]["gEmitCount"] = mEmitPerFrame;
+    vars["PerFrameCB"]["gMaxParticles"] = kMaxParticles;
+    vars["PerFrameCB"]["gFrameSeed"] = mFrameSeed;
+}
+
+// Reads the alive count back to the CPU via a staging buffer.
+// Causes a GPU flush — replace with drawIndirect to eliminate the stall.
+uint32_t ParticleSystem::readAliveCount(RenderContext* pCtx)
+{
+    ref<Buffer> pStaging = mpDevice->createBuffer(sizeof(uint32_t), ResourceBindFlags::None, MemoryType::ReadBack);
+
+    pCtx->copyBufferRegion(pStaging.get(), 0, mpCounters.get(), sizeof(uint32_t), sizeof(uint32_t));
+    pCtx->submit(true);
+
+    const uint32_t count = *static_cast<const uint32_t*>(pStaging->map());
+    pStaging->unmap();
+    return count;
 }

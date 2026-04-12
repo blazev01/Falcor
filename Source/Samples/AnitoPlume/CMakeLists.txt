@@ -3,11 +3,12 @@ add_falcor_executable(AnitoPlume)
 target_sources(AnitoPlume PRIVATE
     AnitoPlume.cpp
     AnitoPlume.h
+    ParticleSystem.cpp
+    ParticleSystem.h
     AnitoPlume.3d.slang
     AnitoPlume.rt.slang
     Particles.cs.slang
-    ParticleSystem.cpp
-    ParticleSystem.h
+    ParticleBillboard.3d.slang
 )
 
 target_copy_shaders(AnitoPlume Samples/AnitoPlume)
