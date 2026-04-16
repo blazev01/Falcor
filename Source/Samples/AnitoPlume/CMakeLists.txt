@@ -5,6 +5,12 @@ target_sources(AnitoPlume PRIVATE
     AnitoPlume.h
     ParticleSystem.cpp
     ParticleSystem.h
+    WindStructure.cpp
+    WindStructure.h
+    SmokeLayer.cpp
+    SmokeLayer.h
+    TerrainStructure.cpp
+    TerrainStructure.h
     AnitoPlume.3d.slang
     AnitoPlume.rt.slang
     Particles.cs.slang

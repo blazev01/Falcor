@@ -33,7 +33,9 @@
 #include "Core/Pass/RasterPass.h"
 #include "RenderGraph/RenderGraph.h"
 #include "ParticleSystem.h"
-
+#include "WindStructure.h"
+#include "TerrainStructure.h"
+#include "SmokeLayer.h"
 using namespace Falcor;
 
 class AnitoPlume : public SampleApp
