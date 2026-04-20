@@ -35,9 +35,9 @@ const std::string kColorOut = "colorOut";
 const std::string kDepthIn = "depth";
 
 // ── shader files ──────────────────────────────────────────────────────
-const std::string kEmitShader = "RenderPasses/BillboardParticlePass/ParticleEmit.cs.slang";
-const std::string kSimulateShader = "RenderPasses/BillboardParticlePass/ParticleSimulate.cs.slang";
-const std::string kRenderShader = "RenderPasses/BillboardParticlePass/ParticleRender.3d.slang";
+const std::string kEmitShader = "RenderPasses/ParticleCompute/ParticleEmit.cs.slang";
+const std::string kSimulateShader = "RenderPasses/ParticleCompute/ParticleSimulate.cs.slang";
+const std::string kRenderShader = "RenderPasses/ParticleCompute/ParticleRender.3d.slang";
 
 // ── thread-group size (must match [numthreads] in the shader) ─────────
 constexpr uint32_t kSimGroupSize = 64u;
