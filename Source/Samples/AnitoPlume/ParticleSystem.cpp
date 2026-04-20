@@ -1,13 +1,8 @@
 #include "ParticleSystem.h"
 
-// Call once inside onLoad() after mpDevice is valid.
-void ParticleSystem::init(RenderContext* pCtx, ref<Device> pDevice)
+ref<ParticleSystem> ParticleSystem::create(ref<Device> pDevice)
 {
-    mpDevice = pDevice;
-
-    initBuffers();
-    initComputePasses();
-    initBillboardPass();
+    return ref<ParticleSystem>(new ParticleSystem(pDevice));
 }
 
 // Call every frame — dispatches emit + update compute passes.
@@ -56,6 +51,13 @@ void ParticleSystem::render(RenderContext* pCtx, const ref<Fbo> pTargetFbo, cons
     // RasterPass::execute() sets the FBO, scissors, and viewport then
     // forwards to pCtx->drawIndexed() internally.
     mpBillboardPass->drawIndexed(pCtx, pTargetFbo, 4, aliveCount);
+}
+
+ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
+{
+    initBuffers();
+    initComputePasses();
+    initBillboardPass();
 }
 
 void ParticleSystem::initBuffers()

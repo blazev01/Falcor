@@ -20,38 +20,20 @@ class ParticleSystem : Object
 public:
     FALCOR_OBJECT(ParticleSystem);
 
-    static ref<ParticleSystem> create() { return make_ref<ParticleSystem>(); }
-
-    ParticleSystem() = default;
-    // =========================================================================
-    // Public tuning knobs — set any time before simulate()
-    // =========================================================================
-
-    float3 mEmitterPos = {0.f, 100.f, 0.f};
-    float3 mEmitDirection = {0.f, 1.f, 0.f}; // normalised emit axis
-    float3 mGravity = {0.f, -9.8f, 0.f};
-    float4 mStartColor = {1.f, 0.6f, 0.1f, 1.f}; // orange, fully opaque
-    float4 mEndColor = {0.3f, 0.3f, 0.3f, 0.f};  // grey, fully transparent
-    float mEmitSpeed = 20.f;
-    float mSpreadAngle = 0.3f; // half-angle cone in radians (~17 deg)
-    float mMinLifetime = 1.5f; // seconds
-    float mMaxLifetime = 3.5f;
-    float mMinSize = 50.0f; // world units
-    float mMaxSize = 100.0f;
-    uint32_t mEmitPerFrame = 128;
+    static ref<ParticleSystem> create(ref<Device> pDevice);
 
     // =========================================================================
     // Lifecycle
     // =========================================================================
 
-    // Call once inside onLoad() after mpDevice is valid.
-    void init(RenderContext* pCtx, ref<Device> pDevice);
     // Call every frame — dispatches emit + update compute passes.
     void simulate(RenderContext* pCtx, float deltaTime);
     // Call every frame after simulate() — composites billboards onto pTargetFbo.
     void render(RenderContext* pCtx, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera);
 
 private:
+    ParticleSystem(ref<Device> pDevice);
+
     // =========================================================================
     // GPU-side particle layout — must mirror Particles.cs.slang exactly
     // =========================================================================
@@ -87,6 +69,23 @@ private:
     // Reads the alive count back to the CPU via a staging buffer.
     // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
     uint32_t readAliveCount(RenderContext* pCtx);
+
+    // =========================================================================
+    // Public tuning knobs — set any time before simulate()
+    // =========================================================================
+
+    float3 mEmitterPos = {0.f, 100.f, 0.f};
+    float3 mEmitDirection = {0.f, 1.f, 0.f}; // normalised emit axis
+    float3 mGravity = {0.f, -9.8f, 0.f};
+    float4 mStartColor = {1.f, 0.6f, 0.1f, 1.f}; // orange, fully opaque
+    float4 mEndColor = {0.3f, 0.3f, 0.3f, 0.f};  // grey, fully transparent
+    float mEmitSpeed = 20.f;
+    float mSpreadAngle = 0.3f; // half-angle cone in radians (~17 deg)
+    float mMinLifetime = 1.5f; // seconds
+    float mMaxLifetime = 3.5f;
+    float mMinSize = 50.0f; // world units
+    float mMaxSize = 100.0f;
+    uint32_t mEmitPerFrame = 128;
 
     // =========================================================================
     // Members

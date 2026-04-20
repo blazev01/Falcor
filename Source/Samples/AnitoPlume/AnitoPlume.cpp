@@ -104,8 +104,7 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
     mpStopIcon = createGUITexture(kStopIconPath);
     mpTaalMinimap = createGUITexture(kTaalMinimapPath);
 
-    mpParticles = ParticleSystem::create();
-    mpParticles->init(pRenderContext, getDevice());
+    mpParticles = ParticleSystem::create(getDevice());
 
     loadScene(kDefaultScene, getTargetFbo().get());
     getDevice()->getProfiler()->setEnabled(true);
